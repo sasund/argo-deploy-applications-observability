@@ -175,7 +175,7 @@ spec:
 
         ## Prometheus ##
         prometheus:
-
+          
           serviceMonitor:
             enabled: true
             additionalLabels:
@@ -370,6 +370,8 @@ spec:
         # type: Daemonset -> collects metrics from the host system
         nodeExporter:
           enabled: true
+          nodeExporter:
+            hostRootfs: false
         prometheus-node-exporter:
           fullnameOverride: prometheus-node-exporter
 
