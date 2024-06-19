@@ -1,0 +1,76 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-opentelemetry-operator-helm
+  namespace: argocd
+
+  # Add this finalizer ONLY if you want these to cascade delete (A cascade delete, deletes both the app and its resources, rather than only the app.)
+  # finalizers:
+  #   - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+
+    automated:
+      prune: true
+      selfHeal: true
+
+  sources:
+    # Operator
+    - chart: opentelemetry-operator
+      repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+      targetRevision: 0.62.0
+
+      # https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-operator
+      helm:
+        valuesObject:
+          fullnameOverride: opentelemetry-operator
+          replicaCount: 1
+          manager:
+            collectorImage:
+              repository: "otel/opentelemetry-collector-contrib"
+            resources:
+              limits:
+                cpu: 100m
+                memory: 128Mi
+                # ephemeral-storage: 50Mi
+              requests:
+                cpu: 100m
+                memory: 64Mi
+
+            serviceMonitor:
+              enabled: false
+              extraLabels:
+                prometheus.io/scrap-with: kube-prometheus-stack
+
+            prometheusRule:
+              enabled: false
+              defaultRules:
+                enabled: false
+              extraLabels:
+                prometheus.io/scrap-with: kube-prometheus-stack
+
+    # Collector
+    - repoURL: ${ARGOCD_ENV_GITHUB_REPO}/argo-deploy-applications-observability.git
+      targetRevision: main
+      path: applications/overlays/local/otel-collector-traces-app
+      kustomize:
+        commonAnnotations:
+          argocd.argoproj.io/sync-wave: "2"
+
+    - repoURL: ${ARGOCD_ENV_GITHUB_REPO}/argo-deploy-applications-observability.git
+      targetRevision: main
+      path: applications/overlays/local/otel-collector-metrics-app
+      kustomize:
+        commonAnnotations:
+          argocd.argoproj.io/sync-wave: "2"
+
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: observability
+
+

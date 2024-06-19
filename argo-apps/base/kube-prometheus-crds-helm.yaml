@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-kube-prometheus-stack-crds-helm
+  namespace: argocd
+
+  # Add this finalizer ONLY if you want these to cascade delete (A cascade delete, deletes both the app and its resources, rather than only the app.)
+  # finalizers:
+  #   - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - Replace=true
+      - PrunePropagationPolicy=foreground
+    automated:
+      prune: true
+      selfHeal: true
+  source:
+    # https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+    repoURL: https://github.com/prometheus-community/helm-charts.git
+    path: charts/kube-prometheus-stack/charts/crds/
+    targetRevision: kube-prometheus-stack-59.1.0
+
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: observability

@@ -1,0 +1,159 @@
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-collector-traces
+  namespace: observability
+
+# https://github.com/open-telemetry/opentelemetry-operator/blob/main/docs/api.md
+spec:
+  mode: deployment
+  serviceAccount: collector
+  env:        
+    - name: GOMEMLIMIT
+      value: 800MiB # should be 80% of memory limit
+
+  autoscaler:
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilization: 80
+    targetMemoryUtilization: 80
+
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 200m
+    limits:
+      memory: 1Gi
+      cpu: 200m
+
+  # https://www.otelbin.io/
+  config: |
+    connectors:
+      # if you are using tempo make sur to disable metricsGenerator
+      # and be carefull with resource consumption
+      spanmetrics:
+        namespace: span.metrics # necessary for spanmetrics to work (probably a bug in the collector)
+        exclude_dimensions: ['status.code'] # java agent do not use status.code but http.response.status_code
+        dimensions:
+          - name: http.response.status_code
+
+        # For micrometer
+        #   dimensions:
+        #     - name: outcome
+        #     - name: status
+        #     - name: http.url
+        #     - name: uri
+        #     - name: exception
+          
+        # Create span_metrics_events_total containing span.event content
+        # events:
+        #   enabled: true
+        #   dimensions:
+        #     - name: exception.type
+        #     - name: exception.message
+          
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+
+      # Scrape collector metrics
+      prometheus:
+        # Can be used for otel dashboard to be compatible.
+        # trim_metric_suffixes: true # otelcol_process_cpu_seconds_total to be trimmed to otelcol_process_cpu_seconds
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector-traces'
+              scrape_interval: 10s
+              static_configs:
+                - targets: [":8888"]
+
+    processors:
+      # https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/processor/resourcedetectionprocessor/README.md#resource-detection-processor
+      resource:
+        # Add collector name to all telemetry (traces, metrics, logs) attributes.
+        attributes:
+        - key: collector.name
+          value: "otel-collector-metrics"
+          action: upsert
+
+      # https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/processor/k8sattributesprocessor/README.md
+      k8sattributes:
+        # Add k8s info to all telemetry (traces, metrics, logs) attributes.
+        extract:
+          metadata:
+          - k8s.namespace.name
+          - k8s.node.name
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.daemonset.name
+          - k8s.cronjob.name
+          - k8s.job.name
+          - k8s.pod.name
+          - k8s.pod.uid
+        passthrough: false
+        pod_association:
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.uid
+        - sources:
+          - from: connection
+
+      batch:
+        timeout: 200ms
+      memory_limiter: # start dropping telemetry if memory usage gets too high
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+
+    exporters:
+      debug:
+
+      otlp/tempo:
+        endpoint: tempo.observability:4317
+        tls:
+          insecure: true
+
+      # Use this exporter if you want to send otlp metrics to prometheus.
+      otlphttp/prometheus:
+        endpoint: http://kube-prometheus-stack-prometheus.observability:9090/api/v1/otlp
+        tls:
+          insecure: true
+
+      prometheusremotewrite/kube-prom-stack:
+        endpoint: http://kube-prometheus-stack-prometheus.observability:9090/api/v1/write
+        tls:
+          insecure: true
+        # Add k8sattributes to metric labels (be very carefull with quantity of labels, by default java agent sends lots of resource labels)
+        resource_to_telemetry_conversion: 
+          enabled: true
+        target_info:  # necessary for spanmetrics
+          enabled: true
+
+    # add healthcheck, debugging port and pprof endpoints
+    extensions:
+      health_check:
+      pprof:
+      zpages:
+
+    service:
+      extensions: [health_check, pprof, zpages]
+      telemetry:
+        logs:
+          encoding: json
+          # level: debug
+        metrics:
+          level: basic # expose collector metrics on port 8888
+
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [k8sattributes, batch, memory_limiter]
+          exporters: [otlp/tempo, spanmetrics, debug]
+        metrics:
+          receivers: [prometheus, spanmetrics]
+          processors: [k8sattributes, resource, batch, memory_limiter]
+          exporters: [prometheusremotewrite/kube-prom-stack, debug]
