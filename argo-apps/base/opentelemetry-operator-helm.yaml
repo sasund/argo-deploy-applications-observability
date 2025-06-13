@@ -23,7 +23,7 @@ spec:
     # Operator
     - chart: opentelemetry-operator
       repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
-      targetRevision: 0.62.0
+      targetRevision: 0.66.0
 
       # https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-operator
       helm:
@@ -55,12 +55,12 @@ spec:
                 prometheus.io/scrap-with: kube-prometheus-stack
 
     # Collector
-    - repoURL: ${ARGOCD_ENV_GITHUB_REPO}/argo-deploy-applications-observability.git
-      targetRevision: main
-      path: applications/overlays/local/otel-collector-traces-app
-      kustomize:
-        commonAnnotations:
-          argocd.argoproj.io/sync-wave: "2"
+    # - repoURL: ${ARGOCD_ENV_GITHUB_REPO}/argo-deploy-applications-observability.git
+    #   targetRevision: main
+    #   path: applications/overlays/local/otel-collector-traces-app
+    #   kustomize:
+    #     commonAnnotations:
+    #       argocd.argoproj.io/sync-wave: "2"
 
     - repoURL: ${ARGOCD_ENV_GITHUB_REPO}/argo-deploy-applications-observability.git
       targetRevision: main
@@ -72,5 +72,3 @@ spec:
   destination:
     server: "https://kubernetes.default.svc"
     namespace: observability
-
-
